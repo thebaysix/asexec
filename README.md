@@ -1,5 +1,7 @@
 # asexec — AsExecuted
 
+> Part of the work at **[lukewhitest.one](https://lukewhitest.one/)** — AI infrastructure & risk stewardship.
+
 **Pre-registered trials for AI evals.** A local-first, pseudonymous, offline-verifiable
 cryptographic primitive: an evaluator commits to running an eval *before* the results are
 known, then publishes tamper-evident, independently-verifiable receipts of what actually
