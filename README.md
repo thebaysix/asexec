@@ -104,7 +104,7 @@ reader prices.
 ## Design & rationale
 
 The full design record (context, blind-spots, brainstorm, interview, plan) lives in the
-[v1 implementation plan, issue #1](https://github.com/thebaysix/asexec/issues/1). Prior art:
+[v1 implementation plan, issue #1](https://github.com/lwhitestone/asexec/issues/1). Prior art:
 AsPredicted / OSF pre-registration, ClinicalTrials.gov + the FDAAA TrialsTracker,
 OpenTimestamps, in-toto / DSSE, drand / League of Entropy.
 

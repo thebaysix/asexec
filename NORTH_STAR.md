@@ -1,6 +1,6 @@
 # North Star
 
-*The outward case for `asexec` — what it does and how to verify it — is the [README](./README.md) and the [v1 design record (issue #1)](https://github.com/thebaysix/asexec/issues/1). This is the inward one: the scope guardrail. It exists so that six months from now, without any adoption pressure in sight, there's something concrete to check scope decisions against instead of re-litigating them from memory.*
+*The outward case for `asexec` — what it does and how to verify it — is the [README](./README.md) and the [v1 design record (issue #1)](https://github.com/lwhitestone/asexec/issues/1). This is the inward one: the scope guardrail. It exists so that six months from now, without any adoption pressure in sight, there's something concrete to check scope decisions against instead of re-litigating them from memory.*
 
 ## What this project is for
 
@@ -30,4 +30,4 @@ If this note is being reread and the temptation is to expand scope in pursuit of
 
 ---
 
-*Related: the [README](./README.md) (what it does + quickstart), [issue #1](https://github.com/thebaysix/asexec/issues/1) (design record + roadmap). A stakeholder-facing pitch exists in the internal campaign notes; it is deliberately the outward twin of this doc — where it invites adoption, this doc is the reminder that adoption is not the near-term goal and not to be designed around.*
+*Related: the [README](./README.md) (what it does + quickstart), [issue #1](https://github.com/lwhitestone/asexec/issues/1) (design record + roadmap). A stakeholder-facing pitch exists in the internal campaign notes; it is deliberately the outward twin of this doc — where it invites adoption, this doc is the reminder that adoption is not the near-term goal and not to be designed around.*
