@@ -108,6 +108,10 @@ The full design record (context, blind-spots, brainstorm, interview, plan) lives
 AsPredicted / OSF pre-registration, ClinicalTrials.gov + the FDAAA TrialsTracker,
 OpenTimestamps, in-toto / DSSE, drand / League of Entropy.
 
+**Scope & philosophy:** [`NORTH_STAR.md`](./NORTH_STAR.md) — what this project is for, and
+(deliberately) what it is *not* chasing. Read it before proposing scope expansions: this is a
+primitive dogfooded honestly at small scale, not a platform or an adoption play.
+
 ## Status
 
 v0.1 — alpha. See issue #1 for the staged roadmap and the named v2 items (OTS/Bitcoin
