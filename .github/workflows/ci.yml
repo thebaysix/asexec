@@ -29,4 +29,4 @@ jobs:
           asexec keygen --out /tmp/ci.key
           asexec preregister --key /tmp/ci.key --subject src --window 2099-01-01T00:00:00Z \
             --target-provider p --target-model m --no-drand --out /tmp/pre.json
-          asexec verify /tmp/pre.json
+          asexec verify /tmp/pre.json --tests bedrock
