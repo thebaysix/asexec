@@ -82,6 +82,48 @@ def fetch_round(round_no: Optional[int] = None, chain_hash: str = DEFAULT_CHAIN)
     raise NetworkError(f"could not fetch drand round from any mirror: {last_err}")
 
 
+def floor_record(round_data: dict) -> dict:
+    """Wrap a fetched round into a typed ``anchor.floor`` record.
+
+    The floor is the signed, sign-time *freshness beacon*: it proves the
+    manifest was created **no earlier than** this round's public moment. It is
+    a beacon (a value fixed at T, independent of the manifest), which is why it
+    can be embedded in the signed body — unlike the ceiling witness.
+    """
+    return {
+        "floor_type": "drand",
+        "chain_hash": round_data["chain_hash"],
+        "round": int(round_data["round"]),
+        "signature": round_data["signature"],
+        "randomness": round_data["randomness"],
+    }
+
+
+def fetch_floor(chain_hash: str = DEFAULT_CHAIN) -> dict:
+    """Fetch the latest round and return it as an ``anchor.floor`` record. SIGN-TIME ONLY."""
+    return floor_record(fetch_round(chain_hash=chain_hash))
+
+
+def verify_floor(floor: dict) -> dict:
+    """Offline verification of an ``anchor.floor`` record.
+
+    Returns ``{status, ...}`` where status is ``verified`` / ``invalid`` /
+    ``unsupported`` (an unknown ``floor_type``).
+    """
+    ftype = floor.get("floor_type")
+    if ftype != "drand":
+        return {"status": "unsupported", "floor_type": ftype}
+    try:
+        chain = floor.get("chain_hash", DEFAULT_CHAIN)
+        ok = verify_round(int(floor["round"]), floor["signature"],
+                          floor.get("randomness"), chain_hash=chain)
+        t = time_of_round(int(floor["round"]), chain)
+        return {"status": "verified" if ok else "invalid", "floor_type": "drand",
+                "round": int(floor["round"]), "created_no_earlier_than": t}
+    except Exception as e:
+        return {"status": "invalid", "error": str(e)}
+
+
 def verify_round(
     round_no: int,
     signature_hex: str,

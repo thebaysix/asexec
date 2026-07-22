@@ -30,7 +30,7 @@ def make_commitment(tmp_path):
         target = {"kind": "api", "provider": "anthropic", "model_id": "m", "endpoint": ""}
 
         subj = hashing.build_subject([str(art / "harness")])
-        pre_body = manifest.build_preregistration(subj, target, _window(closes))
+        pre_body = manifest.build_preregistration(target, _window(closes), subject=subj)
         pre = manifest.sign(pre_body, priv, pub)
         pre_path = tmp_path / "prereg.json"
         manifest.save(pre, str(pre_path))
@@ -42,8 +42,8 @@ def make_commitment(tmp_path):
             tpath = art / f"transcript{i}.txt"
             tpath.write_text(f"run {i}: score=0.{i}\n")
             rsubj = hashing.build_subject([str(tpath), str(art / "harness")])
-            rbody = manifest.build_receipt(rsubj, target, _window(closes),
-                                           fulfills=pre_ref, prev_hash=prev)
+            rbody = manifest.build_receipt(target, _window(closes), fulfills=pre_ref,
+                                           subject=rsubj, prev_hash=prev)
             r = manifest.sign(rbody, priv, pub)
             rp = tmp_path / f"receipt{i}.json"
             manifest.save(r, str(rp))

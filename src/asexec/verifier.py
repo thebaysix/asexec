@@ -1,29 +1,91 @@
-"""The verifier — the product. Two tiers, four states, honest non-claims.
+"""The verifier — the product. A canonical verify CODE, honest non-claims.
 
-Tiers:
-  - cryptographic (offline, always): signature over PAE input; keyid matches
-    pubkey; drand freshness round (if present) BLS-verifies against pinned
-    constants; link/chain consistency.
-  - content (needs artifacts): recompute subject digests from actual files.
+Everything the verifier does verifies offline against pinned constants; nothing
+here touches the network.
 
-States (per commitment = a pre-registration + the receipts that fulfil it):
+Output: a canonical plaintext CODE, never a percentage or tier
+-------------------------------------------------------------
+``verify`` runs a caller-chosen set of tests and emits one code per run::
+
+    asexec-verify/1 bedrock=PASS floor=PASS
+
+Grammar (spec'd here so any implementation reproduces it byte-for-byte):
+
+  - Literal prefix ``asexec-verify/1`` (this versions the code GRAMMAR itself,
+    independent of the schema/PAE versions), then a single ASCII space.
+  - One ``name=RESULT`` token per requested test, ``RESULT`` in ``{PASS, FAIL}``.
+  - Tokens are **sorted alphabetically by name** and single-space delimited.
+
+So the same result set is byte-identical everywhere (``bedrock=PASS floor=PASS``,
+never ``floor=PASS bedrock=PASS``). Because the code *names* which tests ran,
+adding a test in a later version can never change the meaning of an older code:
+a code means exactly one thing, permanently. A percentage/tier would need its
+version's denominator to interpret — the code is self-describing, a score is not.
+
+**The code is NOT a certificate.** It is a summary of a computation, not a
+credential. Real verification = run this tool against the manifests (+
+artifacts) and get this code. A quoted or typed code carries the evidentiary
+weight of "trust me, it passed" — zero. The tool prints ``DISCLAIMER`` with
+every code.
+
+Tests (the catalog — only *verifiable* claims, no self-declarations)
+--------------------------------------------------------------------
+  - ``bedrock``    : signature over the PAE input + keyid matches pubkey.
+                     Applies to every manifest. **Required in every run.**
+  - ``ceiling``    : a ceiling witness (Roughtime) signature verifies against a
+                     pinned key AND its nonce == ref(payload). Applies to
+                     manifests that carry a ceiling.
+  - ``chain``      : prev_hash chain integrity (one root, no gaps). Applies to
+                     commitments that have receipts.
+  - ``content``    : subject digests recomputed from --artifacts match. Applies
+                     where artifacts are provided and a subject is present.
+  - ``floor``      : the drand freshness floor BLS-verifies. Applies to
+                     manifests that carry an anchor.floor.
+  - ``keyconsist`` : receipts share the pre-registration's key. Applies to
+                     commitments that have receipts.
+
+A requested test is ``PASS`` iff it holds everywhere it applies AND it applies
+somewhere; a requested test that applies **nowhere** is ``FAIL``
+(requested-but-absent), never a silent omission or a vacuous pass.
+
+States (per commitment = a pre-registration + the receipts that fulfil it)
+--------------------------------------------------------------------------
+Rendered in the human report above the code; the verifier RENDERS these, it
+never adjudicates intent or whether a commitment was "good enough":
   - fulfilled          : >=1 valid receipt references this pre-registration
   - open               : 0 receipts and the disclosure window has not elapsed
   - elapsed-no-receipt : 0 receipts and the window has elapsed
   - notarization-only  : a receipt with no matching pre-registration provided
-
-The verifier RENDERS these. It never adjudicates intent or whether a
-commitment was "good enough".
 """
 
 from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import drand, hashing, keys, manifest
 from .canonical import signing_input
+from .errors import VerificationError
+
+# The canonical grammar version for the verify code. Independent of the
+# schema/PAE versions — it versions the *code format*, not the signed bytes.
+CODE_VERSION = "asexec-verify/1"
+
+# The test catalog, alphabetical (the order names appear in a code).
+TEST_CATALOG: Tuple[str, ...] = (
+    "bedrock", "ceiling", "chain", "content", "floor", "keyconsist",
+)
+
+# bedrock is the mandatory minimum: a run that does not check it is not a
+# meaningful asexec verification, so `verify` requires it explicitly.
+REQUIRED_TEST = "bedrock"
+
+DISCLAIMER = (
+    "this code is only meaningful if reproduced — do not treat a quoted code "
+    "as proof. Real verification = run this tool against the files and get "
+    "this code yourself."
+)
 
 NON_CLAIMS = [
     "PROVENANCE: content hashes prove a transcript was not ALTERED; they do NOT "
@@ -31,14 +93,39 @@ NON_CLAIMS = [
     "not re-executed).",
     "COMPLETENESS: this renders only the manifests provided. It cannot prove a "
     "lab pre-registered every eval it should have (selective pre-registration).",
-    "THE 'PRE' IS SOCIAL, NOT CRYPTOGRAPHIC: a drand anchor proves freshness "
-    "(created no earlier than a public moment), not that the pre-registration "
-    "preceded the run. That 'ceiling' comes from the witnessed public repo, not "
-    "from these files (a future --ots mode adds a cryptographic ceiling).",
+    "FLOOR = FRESHNESS, NOT 'PRE': a drand floor proves a manifest was created "
+    "NO EARLIER THAN a public moment (anti-precomputation). It does NOT prove "
+    "the pre-registration preceded the run — on its own it cannot bound "
+    "backdating.",
+    "CEILING = A DIFFERENT TRUST CLASS: an optional ceiling witness (Roughtime) "
+    "proves creation NO LATER THAN time T, but only by trusting the named "
+    "signer(s) to be honest about time — a signature-witness trust, NOT the "
+    "trustless proof-of-work of an OTS/Bitcoin ceiling. Without a ceiling, the "
+    "'pre' is SOCIAL (the witnessed public repo), not cryptographic.",
     "IDENTITY: a key is pseudonymous. Binding it to a real entity is a separate "
     "check (see 'asexec identity'); absence of that binding is not proof of who "
     "signed.",
 ]
+
+
+def parse_tests(spec: str) -> List[str]:
+    """Parse a ``--tests`` string into a validated, de-duplicated list.
+
+    Raises ``VerificationError`` on an unknown test or if ``bedrock`` is absent
+    (no implicit default; the caller must declare its appetite explicitly).
+    """
+    names = [t.strip() for t in spec.split(",") if t.strip()]
+    if not names:
+        raise VerificationError("no tests requested; --tests must list at least 'bedrock'")
+    unknown = [t for t in names if t not in TEST_CATALOG]
+    if unknown:
+        raise VerificationError(
+            f"unknown test(s): {', '.join(unknown)}; available: {', '.join(TEST_CATALOG)}")
+    if REQUIRED_TEST not in names:
+        raise VerificationError(
+            f"'{REQUIRED_TEST}' must be included in --tests (the mandatory minimum)")
+    # preserve catalog order, de-dup.
+    return [t for t in TEST_CATALOG if t in names]
 
 
 def _parse_iso(ts: str) -> float:
@@ -49,7 +136,7 @@ def _parse_iso(ts: str) -> float:
 
 
 def verify_signature(mani: Dict[str, Any]) -> Dict[str, Any]:
-    """Cryptographic tier for a single manifest."""
+    """The bedrock check for a single manifest: signature + keyid."""
     out: Dict[str, Any] = {"signature_ok": False, "keyid_ok": False, "errors": []}
     try:
         body = manifest.get_body(mani)
@@ -66,25 +153,41 @@ def verify_signature(mani: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def verify_freshness(body: Dict[str, Any]) -> Dict[str, Any]:
-    fr = body.get("freshness")
-    if not fr:
+def verify_floor(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Verify the drand freshness floor at ``body.anchor.floor`` (if present)."""
+    floor = (body.get("anchor") or {}).get("floor")
+    if not floor:
+        return {"status": "absent"}
+    return drand.verify_floor(floor)
+
+
+def verify_ceiling(mani: Dict[str, Any]) -> Dict[str, Any]:
+    """Verify the envelope-level ceiling witness (if present).
+
+    Two conditions: (1) the witness signature verifies against a pinned key,
+    and (2) the witness's nonce binds to THIS manifest (nonce == ref(payload)).
+    Delegates the witness cryptography to the ``roughtime`` module; the nonce
+    binding is checked here.
+    """
+    ceiling = manifest.get_ceiling(mani)
+    if not ceiling:
         return {"status": "absent"}
     try:
-        ok = drand.verify_round(
-            int(fr["round"]), fr["signature"], fr.get("randomness"),
-            chain_hash=fr.get("chain_hash", drand.DEFAULT_CHAIN),
-        )
-        t = drand.time_of_round(int(fr["round"]), fr.get("chain_hash", drand.DEFAULT_CHAIN))
-        return {"status": "verified" if ok else "invalid",
-                "round": int(fr["round"]), "created_no_earlier_than": t}
+        body = manifest.get_body(mani)
+        expected_nonce = manifest.ref(body)
     except Exception as e:
-        return {"status": "invalid", "error": str(e)}
+        return {"status": "invalid", "error": f"malformed manifest: {e}"}
+    from . import roughtime
+
+    res = roughtime.verify_ceiling(ceiling, expected_nonce)
+    return res
 
 
 def verify_content(body: Dict[str, Any], artifacts_dir: Optional[str]) -> Dict[str, Any]:
     if not artifacts_dir:
         return {"status": "skipped", "reason": "no artifacts provided"}
+    if not body.get("subject"):
+        return {"status": "skipped", "reason": "manifest has no subject"}
     alg = body.get("hash_alg", hashing.DEFAULT_ALG)
     entries = []
     all_ok = True
@@ -104,32 +207,35 @@ def verify_content(body: Dict[str, Any], artifacts_dir: Optional[str]) -> Dict[s
     return {"status": "ok" if all_ok else "mismatch", "entries": entries}
 
 
-def verify_paths(paths: List[str], artifacts_dir: Optional[str] = None,
+def verify_paths(paths: List[str], tests: List[str],
+                 artifacts_dir: Optional[str] = None,
                  now: Optional[float] = None) -> Dict[str, Any]:
-    """Load, crypto-verify, group, and render states for a set of manifests."""
+    """Load, verify, group, evaluate the requested tests, and build the code."""
     now = time.time() if now is None else now
     files = _expand(paths)
 
-    loaded = []  # (path, manifest, body, sigreport)
+    preregs: Dict[str, Any] = {}   # ref -> record
+    receipts = []
+    manifests_report = []
+    ceiling_trust = []
+
     for p in files:
         mani = manifest.load(p)
         sig = verify_signature(mani)
         body = mani.get("payload", {})
-        loaded.append((p, mani, body, sig))
-
-    preregs = {}  # ref -> record
-    receipts = []
-    manifests_report = []
-    overall_ok = True
-
-    for p, mani, body, sig in loaded:
-        fresh = verify_freshness(body) if sig.get("errors") == [] else {"status": "absent"}
-        content = verify_content(body, artifacts_dir) if sig.get("errors") == [] else {"status": "skipped"}
-        crypto_ok = sig["signature_ok"] and sig["keyid_ok"] and fresh["status"] in ("absent", "verified")
-        overall_ok = overall_ok and crypto_ok and content["status"] in ("ok", "skipped")
+        clean = sig.get("errors") == []
+        floor = verify_floor(body) if clean else {"status": "absent"}
+        ceiling = verify_ceiling(mani) if clean else {"status": "absent"}
+        content = verify_content(body, artifacts_dir) if clean else {"status": "skipped"}
+        if ceiling.get("status") == "verified":
+            ceiling_trust.append(
+                f"{p}: ceiling witnessed by {ceiling.get('witness_id')} at "
+                f"{ceiling.get('midpoint')} (±{ceiling.get('radius')}s) — you are "
+                f"trusting {ceiling.get('witness_id')} to be honest about time "
+                f"(signature-witness trust class, distinct from the floor).")
         rec = {"path": p, "phase": body.get("phase"), "ref": sig.get("ref"),
-               "keyid": sig.get("keyid"), "signature": sig, "freshness": fresh,
-               "content": content}
+               "keyid": sig.get("keyid"), "signature": sig, "floor": floor,
+               "ceiling": ceiling, "content": content}
         manifests_report.append(rec)
         if body.get("phase") == "preregistration" and sig.get("ref"):
             preregs[sig["ref"]] = {"ref": sig["ref"], "keyid": sig.get("keyid"),
@@ -151,18 +257,85 @@ def verify_paths(paths: List[str], artifacts_dir: Optional[str] = None,
     for pr in preregs.values():
         state = _commitment_state(pr, now)
         chain_ok, chain_note = _check_chain(pr["receipts"])
-        # same-key consistency: receipts should share the prereg's key
         key_consistent = all(r["keyid"] == pr["keyid"] for r in pr["receipts"])
         commitments.append({**pr, "state": state, "chain_ok": chain_ok,
                             "chain_note": chain_note, "key_consistent": key_consistent})
 
+    results = _evaluate(tests, manifests_report, commitments, artifacts_dir)
+    code = _build_code(tests, results)
+    ok = all(results[t]["result"] == "PASS" for t in tests)
+
     return {
-        "ok": overall_ok,
+        "tests": tests,
         "manifests": manifests_report,
         "commitments": commitments,
         "notarization_only": notarization_only,
+        "results": results,
+        "code": code,
+        "ok": ok,
+        "ceiling_trust": ceiling_trust,
         "non_claims": NON_CLAIMS,
+        "disclaimer": DISCLAIMER,
     }
+
+
+def _tally(units: List[bool], nowhere_reason: str, fail_noun: str) -> Dict[str, Any]:
+    """Turn a list of per-unit pass booleans into a test result.
+
+    PASS iff there is at least one applicable unit and all of them pass;
+    otherwise FAIL — distinguishing "applied nowhere" from "some failed" in the
+    human-readable reason (never a silent omission or a vacuous pass).
+    """
+    n = len(units)
+    if n == 0:
+        return {"result": "FAIL", "applicable": 0, "reason": nowhere_reason}
+    n_pass = sum(1 for u in units if u)
+    if n_pass == n:
+        return {"result": "PASS", "applicable": n, "reason": f"{n}/{n} {fail_noun} ok"}
+    return {"result": "FAIL", "applicable": n,
+            "reason": f"{n - n_pass}/{n} {fail_noun} failed"}
+
+
+def _evaluate(tests, manifests, commitments, artifacts_dir) -> Dict[str, Dict[str, Any]]:
+    res: Dict[str, Dict[str, Any]] = {}
+    with_receipts = [c for c in commitments if c["receipts"]]
+
+    if "bedrock" in tests:
+        units = [bool(m["signature"].get("signature_ok") and m["signature"].get("keyid_ok"))
+                 for m in manifests]
+        res["bedrock"] = _tally(units, "no manifests to verify", "manifest(s)")
+
+    if "floor" in tests:
+        units = [m["floor"]["status"] == "verified"
+                 for m in manifests if m["floor"]["status"] != "absent"]
+        res["floor"] = _tally(units, "requested but no manifest carries an anchor.floor", "floor(s)")
+
+    if "ceiling" in tests:
+        units = [m["ceiling"]["status"] == "verified"
+                 for m in manifests if m["ceiling"]["status"] != "absent"]
+        res["ceiling"] = _tally(units, "requested but no manifest carries a ceiling witness", "ceiling(s)")
+
+    if "content" in tests:
+        units = [m["content"]["status"] == "ok"
+                 for m in manifests if m["content"]["status"] not in ("skipped",)]
+        nowhere = ("requested but no content could be checked "
+                   "(need --artifacts and a manifest with a subject)")
+        res["content"] = _tally(units, nowhere, "subject(s)")
+
+    if "chain" in tests:
+        units = [c["chain_ok"] for c in with_receipts]
+        res["chain"] = _tally(units, "requested but no commitment has receipts to chain-check", "chain(s)")
+
+    if "keyconsist" in tests:
+        units = [c["key_consistent"] for c in with_receipts]
+        res["keyconsist"] = _tally(units, "requested but no commitment has receipts to key-check", "commitment(s)")
+
+    return res
+
+
+def _build_code(tests: List[str], results: Dict[str, Dict[str, Any]]) -> str:
+    tokens = [f"{name}={results[name]['result']}" for name in sorted(tests)]
+    return CODE_VERSION + " " + " ".join(tokens)
 
 
 def _commitment_state(pr: Dict[str, Any], now: float) -> str:

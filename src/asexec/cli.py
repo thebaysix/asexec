@@ -15,8 +15,8 @@ import subprocess
 import sys
 from typing import List, Optional
 
-from . import __version__, drand, hashing, identity, keys, manifest
-from .verifier import verify_paths
+from . import __version__, drand, hashing, identity, keys, manifest, verifier
+from .errors import VerificationError
 
 OK = "✓"
 NO = "✗"
@@ -43,14 +43,40 @@ def _disclosure_window(args) -> dict:
     return win
 
 
-def _freshness(no_drand: bool) -> Optional[dict]:
+def _floor(no_drand: bool) -> Optional[dict]:
+    """Fetch a drand freshness floor (anchor.floor) at sign time, or None."""
     if no_drand:
         return None
     try:
-        return drand.fetch_round()
+        return drand.fetch_floor()
     except Exception as e:
-        sys.stderr.write(f"warning: drand fetch failed ({e}); continuing without freshness anchor\n")
+        sys.stderr.write(f"warning: drand fetch failed ({e}); continuing without freshness floor\n")
         return None
+
+
+def _attach_ceiling(mani: dict, body: dict, want_ceiling: bool) -> None:
+    """Optionally fetch a Roughtime ceiling witness and attach it to the envelope.
+
+    Sign-time and network-touching (like the drand fetch). The nonce is the
+    body ref, so this must run *after* signing; it does not perturb ref.
+    """
+    if not want_ceiling:
+        return
+    from . import roughtime
+
+    nonce = manifest.ref(body)  # sha-256:<hex>
+    try:
+        ceiling = roughtime.fetch_ceiling(nonce)
+    except Exception as e:
+        sys.stderr.write(f"warning: ceiling witness fetch failed ({e}); continuing without a ceiling\n")
+        return
+    manifest.attach_ceiling(mani, ceiling)
+    print(f"  ceiling : {ceiling.get('ceiling_type')} witness {ceiling.get('witness_id')} "
+          f"@ {ceiling.get('midpoint')} (±{ceiling.get('radius')}s)")
+
+
+def _subject(args, hash_alg: str) -> Optional[list]:
+    return hashing.build_subject(args.subject, hash_alg) if args.subject else None
 
 
 def _notes(args) -> Optional[dict]:
@@ -90,12 +116,13 @@ def cmd_keygen(args) -> int:
 
 def cmd_preregister(args) -> int:
     priv, pub = keys.load_signing_key(args.key)
-    subject = hashing.build_subject(args.subject, args.hash_alg)
     body = manifest.build_preregistration(
-        subject, _target_identity(args), _disclosure_window(args),
-        hash_alg=args.hash_alg, freshness=_freshness(args.no_drand), notes=_notes(args),
+        _target_identity(args), _disclosure_window(args),
+        subject=_subject(args, args.hash_alg), hash_alg=args.hash_alg,
+        floor=_floor(args.no_drand), notes=_notes(args),
     )
     mani = manifest.sign(body, priv, pub)
+    _attach_ceiling(mani, body, args.ceiling)
     manifest.save(mani, args.out)
     print(f"{OK} pre-registration written: {args.out}")
     print(f"  ref   : {manifest.ref(body)}")
@@ -131,14 +158,15 @@ def cmd_seal(args) -> int:
 
     subject = hashing.build_subject(args.subject, hash_alg)
     body = manifest.build_receipt(
-        subject, target, window,
+        target, window,
         fulfills=_resolve_ref(args.fulfills),
-        prev_hash=_resolve_ref(args.prev) if args.prev else None,
-        hash_alg=hash_alg, freshness=_freshness(args.no_drand),
+        subject=subject, prev_hash=_resolve_ref(args.prev) if args.prev else None,
+        hash_alg=hash_alg, floor=_floor(args.no_drand),
         provenance=args.provenance, notes=_notes(args),
         repro_recipe=json.loads(args.repro_recipe) if args.repro_recipe else None,
     )
     mani = manifest.sign(body, priv, pub)
+    _attach_ceiling(mani, body, args.ceiling)
     manifest.save(mani, args.out)
     print(f"{OK} receipt written: {args.out}")
     print(f"  ref     : {manifest.ref(body)}")
@@ -151,25 +179,36 @@ def cmd_seal(args) -> int:
 
 
 def cmd_verify(args) -> int:
+    try:
+        tests = verifier.parse_tests(args.tests)
+    except VerificationError as e:
+        raise SystemExit(f"error: {e}")
+
     now = None
     if args.now:
-        from .verifier import _parse_iso
-
-        now = _parse_iso(args.now)
-    report = verify_paths(args.paths, artifacts_dir=args.artifacts, now=now)
+        now = verifier._parse_iso(args.now)
+    report = verifier.verify_paths(args.paths, tests, artifacts_dir=args.artifacts, now=now)
 
     print("=== manifests ===")
     for m in report["manifests"]:
         sig = m["signature"]
         s = OK if (sig.get("signature_ok") and sig.get("keyid_ok")) else NO
         print(f"{s} {m['path']}  [{m.get('phase')}]  keyid={m.get('keyid')}")
-        fr = m["freshness"]
-        if fr["status"] != "absent":
-            fs = OK if fr["status"] == "verified" else NO
-            extra = f" (created no earlier than {fr.get('created_no_earlier_than')})" if fr["status"] == "verified" else ""
-            print(f"    {fs} drand freshness round {fr.get('round','?')}{extra}")
+        fl = m["floor"]
+        if fl["status"] != "absent":
+            fs = OK if fl["status"] == "verified" else NO
+            extra = (f" (created no earlier than {fl.get('created_no_earlier_than')})"
+                     if fl["status"] == "verified" else "")
+            print(f"    {fs} drand freshness floor round {fl.get('round','?')}{extra}")
+        cl = m["ceiling"]
+        if cl["status"] != "absent":
+            cs = OK if cl["status"] == "verified" else NO
+            extra = (f" (created no later than {cl.get('midpoint')} ±{cl.get('radius')}s, "
+                     f"witness {cl.get('witness_id')})" if cl["status"] == "verified"
+                     else f" ({cl.get('error', cl['status'])})")
+            print(f"    {cs} ceiling witness{extra}")
         c = m["content"]
-        if c["status"] != "skipped":
+        if c["status"] not in ("skipped",):
             cs = OK if c["status"] == "ok" else NO
             print(f"    {cs} content hashes {c['status']}")
             for e in c.get("entries", []):
@@ -191,11 +230,23 @@ def cmd_verify(args) -> int:
         for n in report["notarization_only"]:
             print(f"  {n['ref']}  (fulfills {n.get('fulfills')})")
 
+    print("\n=== tests ===")
+    for t in report["tests"]:
+        r = report["results"][t]
+        s = OK if r["result"] == "PASS" else NO
+        print(f"  {s} {t}={r['result']}  ({r['reason']})")
+
+    if report["ceiling_trust"]:
+        print("\n=== ceiling trust (what you are accepting) ===")
+        for line in report["ceiling_trust"]:
+            print(f"  - {line}")
+
     print("\n=== what this does NOT prove ===")
     for nc in report["non_claims"]:
         print(f"  - {nc}")
 
-    print(f"\noverall cryptographic verification: {'PASS' if report['ok'] else 'FAIL'}")
+    print(f"\n{report['code']}")
+    print(f"DISCLAIMER: {report['disclaimer']}")
     return 0 if report["ok"] else 2
 
 
@@ -250,12 +301,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("preregister", help="sign a pre-registration before a run")
     pr.add_argument("--key", required=True)
-    pr.add_argument("--subject", nargs="+", required=True, help="path(s) to harness/eval to hash")
+    pr.add_argument("--subject", nargs="+", help="path(s) to harness/eval to hash (optional at prereg time)")
     pr.add_argument("--window", required=True, help="disclosure deadline, ISO-8601 (e.g. 2026-08-30T00:00:00Z)")
     pr.add_argument("--declares", help="plain-language commitment text")
     _add_target_flags(pr)
     pr.add_argument("--hash-alg", default=hashing.DEFAULT_ALG, choices=hashing.available_algorithms())
-    pr.add_argument("--no-drand", action="store_true", help="omit the drand freshness anchor")
+    pr.add_argument("--no-drand", action="store_true", help="omit the drand freshness floor")
+    pr.add_argument("--ceiling", action="store_true",
+                    help="attach a Roughtime ceiling witness (proves created no later than T; network)")
     pr.add_argument("--notes", help="free-form context (hypothesis/methodology)")
     pr.add_argument("--out", default="preregistration.json")
     pr.add_argument("--commit", action="store_true", help="git add+commit the file (no push)")
@@ -271,6 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_target_flags(sl)
     sl.add_argument("--hash-alg", default=None, choices=hashing.available_algorithms())
     sl.add_argument("--no-drand", action="store_true")
+    sl.add_argument("--ceiling", action="store_true",
+                    help="attach a Roughtime ceiling witness (proves created no later than T; network)")
     sl.add_argument("--provenance", choices=["asserted", "reproducible"], default="asserted")
     sl.add_argument("--repro-recipe", help="JSON: {seed, decode, runtime} if provenance=reproducible")
     sl.add_argument("--notes")
@@ -278,8 +333,11 @@ def build_parser() -> argparse.ArgumentParser:
     sl.add_argument("--commit", action="store_true")
     sl.set_defaults(func=cmd_seal)
 
-    v = sub.add_parser("verify", help="verify manifests offline; render commitment states")
+    v = sub.add_parser("verify", help="verify manifests offline; emit a canonical verify code")
     v.add_argument("paths", nargs="+", help="manifest file(s) or a directory of them")
+    v.add_argument("--tests", required=True,
+                   help="comma-separated tests to run (MUST include 'bedrock'). "
+                        f"available: {', '.join(verifier.TEST_CATALOG)}")
     v.add_argument("--artifacts", help="directory of original artifacts, to check content hashes")
     v.add_argument("--now", help="override 'now' (ISO-8601) for window evaluation (testing)")
     v.set_defaults(func=cmd_verify)
