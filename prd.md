@@ -18,14 +18,14 @@ A notarization-only tool (proving a receipt wasn't tampered with *after* publica
 - **G2**: Let an evaluator publish a signed, content-addressed receipt of an eval's inputs and outputs after the run.
 - **G3**: Let any third party verify, entirely offline, that a receipt matches a prior pre-registration and hasn't been altered since publication.
 - **G4**: Make gaps between pre-registration and disclosure structurally visible — silence is evidence, not just absence of proof.
-- **G5**: Require no hosted service, no CA, and no identity-verification layer to produce a functioning v1.
+- **G5**: Require no hosted service, no CA, and no identity-verification layer to produce a functioning 0.1 release.
 
-## 4. Non-goals (explicitly out of scope for v1)
+## 4. Non-goals (explicitly out of scope)
 
 - **Not solving identity/trust.** Keys are pseudonymous. Binding a key to a real-world entity (a specific lab) is left to whoever consumes receipts — via `.well-known`-style self-assertion, social proof, or an out-of-band channel. This project does not run or become a CA.
 - **Not solving capability elicitation quality.** This project does not judge whether an eval is well-designed, whether a benchmark is a good proxy for real-world capability, or whether elicitation was sufficiently adversarial (the "sandbagging" question). It only makes the *process* — commit, run, disclose — auditable.
-- **Not a hosted transparency log in v1.** No shared server. Receipts and pre-registrations are files; where they're published (a repo, a website, IPFS, wherever) is the evaluator's choice.
-- **Not solving closed-weight model hashing in v1.** v1 targets local/open-weight models where checkpoint hashing is straightforward. API-based/closed models (hashed only by provider + model ID + timestamp, which is a weaker binding) are a documented v2 extension.
+- **Not a hosted transparency log.** No shared server. Receipts and pre-registrations are files; where they're published (a repo, a website, IPFS, wherever) is the evaluator's choice. (Explicitly not scheduled — see [`ROADMAP.md`](./ROADMAP.md).)
+- **Not solving closed-weight model hashing yet.** The initial release targets local/open-weight models where checkpoint hashing is straightforward. API-based/closed models (hashed only by provider + model ID + timestamp, which is a weaker binding) are a documented later-release extension.
 - **Not preventing a bad-faith evaluator from never pre-registering at all.** The mechanism only bites once a lab chooses to participate and make public commitments. It cannot compel participation — its value is reputational and voluntary, same as clinical trial pre-registration.
 
 ## 5. Core concepts
@@ -79,12 +79,12 @@ A notarization-only tool (proving a receipt wasn't tampered with *after* publica
 
 ## 7. Design principles (carried from earlier scoping discussion)
 
-- **Primitive, not platform.** Ship `asexec` as a signing/verification library + thin CLI. No dashboard, no hosted aggregator, no leaderboard. Anything resembling a shared service is a v2+ decision, made only if a real need appears.
+- **Primitive, not platform.** Ship `asexec` as a signing/verification library + thin CLI. No dashboard, no hosted aggregator, no leaderboard. Anything resembling a shared service is a later, out-of-scope decision, made only if a real need appears (see [`ROADMAP.md`](./ROADMAP.md)).
 - **No new trust required beyond what's declared.** No CA, no identity system, no dependency on any single company's servers or logs for the core guarantee to hold.
 - **Local-first and offline-verifiable.** Verification must work with nothing but the manifest files, the original artifacts, and public keys already in hand.
 - **Fail loud, not silent.** Ambiguous or unfulfilled states (missing receipt, expired window, no pre-registration) should be surfaced explicitly rather than defaulted to a pass/fail binary that overclaims.
 
-## 8. Success criteria for v1
+## 8. Success criteria for 0.1
 
 - An evaluator can, using only the CLI, pre-register an eval, run it, and publish a receipt, in under some low number of manual steps (target: no more than a handful of commands).
 - A third party with no prior relationship to the evaluator can verify a full commit-then-reveal cycle offline, using only published files and a public key, with no network access and no involvement from this project's authors.
@@ -102,4 +102,4 @@ A notarization-only tool (proving a receipt wasn't tampered with *after* publica
 - **Sigstore / in-toto / SLSA** — supply chain attestation patterns (though this project deliberately skips their identity/OIDC layer).
 - **OpenTimestamps** — trustless timestamp anchoring via blockchain.
 - **Clinical trial pre-registration (e.g., ClinicalTrials.gov)** — the direct conceptual ancestor of the commit-then-reveal mechanism; useful as a one-line explanation when pitching the project to non-technical audiences.
-- **Certificate Transparency** — append-only, publicly auditable log design, relevant if a v2 shared transparency log is ever pursued (explicitly not v1).
+- **Certificate Transparency** — append-only, publicly auditable log design, relevant only if a shared transparency log is ever pursued (explicitly not scheduled — see [`ROADMAP.md`](./ROADMAP.md)).

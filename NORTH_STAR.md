@@ -1,6 +1,6 @@
 # North Star
 
-*The outward case for `asexec` — what it does and how to verify it — is the [README](./README.md) and the [v1 design record (issue #1)](https://github.com/lwhitestone/asexec/issues/1). This is the inward one: the scope guardrail. It exists so that six months from now, without any adoption pressure in sight, there's something concrete to check scope decisions against instead of re-litigating them from memory.*
+*The outward case for `asexec` — what it does and how to verify it — is the [README](./README.md) and the [design record (issue #1)](https://github.com/lwhitestone/asexec/issues/1). This is the inward one: the scope guardrail. It exists so that six months from now, without any adoption pressure in sight, there's something concrete to check scope decisions against instead of re-litigating them from memory.*
 
 ## What this project is for
 
@@ -18,7 +18,7 @@ That's the whole thesis. Everything else — richer schemas, nicer tooling, wide
 ## What I'm explicitly not chasing
 
 - **Lab adoption as a near-term goal.** The parties with the strongest incentive to look transparent are the parties with the weakest incentive to accept a tool that makes selective disclosure legibly costly. That incentive gap doesn't close because the tool is well-built. It closes (if it ever does) through some combination of regulatory mandate, gatekeeper pressure (a journal-equivalent, a safety-framework auditor), or industry-wide norm shift — none of which I control, and none of which are worth designing the tool around in the meantime.
-- **Growth or evangelism as a v1/v2 workstream.** Time spent on marketing a primitive that hasn't survived one honest usage cycle is time misallocated. Adoption effort comes after the tool has been dogfooded, not instead of it.
+- **Growth or evangelism as a scheduled workstream.** Time spent on marketing a primitive that hasn't survived one honest usage cycle is time misallocated. Adoption effort comes after the tool has been dogfooded, not instead of it — which is why the [roadmap](./ROADMAP.md) carries no adoption/growth release.
 - **Owning the surfacing layer long-term.** Building a reference verifier is fine; becoming the permanent, sole home for verification is scope creep back toward "another layer on top of the pool," which was the thing this project was started to avoid.
 - **Solving problems that aren't mine to solve.** Identity binding, capability-elicitation quality, sandbagging detection, and regulatory mandate are all real gaps this project doesn't close. Naming them clearly and moving on is preferable to quietly overclaiming or spending effort chasing them out of scope.
 
@@ -30,4 +30,4 @@ If this note is being reread and the temptation is to expand scope in pursuit of
 
 ---
 
-*Related: the [README](./README.md) (what it does + quickstart), [issue #1](https://github.com/lwhitestone/asexec/issues/1) (design record + roadmap). A stakeholder-facing pitch exists in the internal campaign notes; it is deliberately the outward twin of this doc — where it invites adoption, this doc is the reminder that adoption is not the near-term goal and not to be designed around.*
+*Related: the [README](./README.md) (what it does + quickstart), [`ROADMAP.md`](./ROADMAP.md) (version-keyed backlog), [issue #1](https://github.com/lwhitestone/asexec/issues/1) (design record). A stakeholder-facing pitch exists in the internal campaign notes; it is deliberately the outward twin of this doc — where it invites adoption, this doc is the reminder that adoption is not the near-term goal and not to be designed around.*

@@ -33,8 +33,8 @@ selective-disclosure problem in AI safety evaluations.
 **It does NOT prove** (surfaced in `verify` output, not just here):
 - **Identity.** Keys are pseudonymous. Binding a key to a real entity is a separate,
   optional `.well-known` check — asexec is not a CA.
-- **That the pre-registration truly preceded the run ("pre") — cryptographically.** In v1
-  the "pre" is *social*: it rests on the pre-registration being published to a **watched
+- **That the pre-registration truly preceded the run ("pre") — cryptographically.** In the
+  current release the "pre" is *social*: it rests on the pre-registration being published to a **watched
   public repo** before the run, not on a cryptographic ceiling. (A future `--ots` mode adds
   an OpenTimestamps/Bitcoin ceiling for proof to a non-observer.)
 - **Provenance.** Content hashes prove a transcript wasn't *altered*; they do **not** prove
@@ -104,7 +104,7 @@ reader prices.
 ## Design & rationale
 
 The full design record (context, blind-spots, brainstorm, interview, plan) lives in the
-[v1 implementation plan, issue #1](https://github.com/lwhitestone/asexec/issues/1). Prior art:
+[design record, issue #1](https://github.com/lwhitestone/asexec/issues/1). Prior art:
 AsPredicted / OSF pre-registration, ClinicalTrials.gov + the FDAAA TrialsTracker,
 OpenTimestamps, in-toto / DSSE, drand / League of Entropy.
 
@@ -114,9 +114,11 @@ primitive dogfooded honestly at small scale, not a platform or an adoption play.
 
 ## Status
 
-v0.1 — alpha. See issue #1 for the staged roadmap and the named v2 items (OTS/Bitcoin
-cryptographic ceiling, re-execution/determinism mode, hash-log anchoring, web-of-trust / key
-transparency).
+**0.1.0 — alpha.** The next release (**0.2.0**) rebalances the schema, adds the drand
+floor/ceiling freshness anchors, and redesigns the verifier output. See
+[`ROADMAP.md`](./ROADMAP.md) for the version-keyed backlog — including later items
+(per-key public index, re-execution/determinism mode) and what is *explicitly not
+scheduled* (hosted transparency log, identity binding / CA).
 
 ## License
 
